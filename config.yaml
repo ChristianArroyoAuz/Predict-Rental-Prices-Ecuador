@@ -1,0 +1,39 @@
+# Configuración del proyecto
+project:
+  name: "Predicción de Alquileres Ecuador"
+  version: "1.0.0"
+  
+data:
+  filepath: "data/real_state_ecuador_dataset.csv"
+  test_size: 0.2
+  random_state: 42
+  remove_outliers: true
+  
+model:
+  type: "random_forest"
+  params:
+    n_estimators: 200
+    max_depth: 20
+    min_samples_split: 5
+    min_samples_leaf: 2
+  
+features:
+  categorical:
+    - "Provincia"
+    - "ciudad"
+    - "sector"
+  numerical:
+    - "Num. dormitorios"
+    - "Num. banos"
+    - "Area"
+    - "Num. garages"
+  target: "Precio"
+  
+api:
+  host: "0.0.0.0"
+  port: 8000
+  title: "API de Predicción de Alquileres"
+  
+logging:
+  level: "INFO"
+  file: "logs/project.log"
