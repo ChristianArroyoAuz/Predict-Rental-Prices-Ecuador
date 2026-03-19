@@ -6,7 +6,7 @@
 # !pip install numpy
 
 # Importar Librerías
-from fastapi.middleware.cors import CORSMiddleware   # Middleware para permitir peticiones desde diferentes orígenes (Cross-Origin Resource Sharing)
+from fastapi.middleware.cors import CORSMiddleware   # Middleware para permitir peticiones desde diferentes orígenes
 from fastapi import FastAPI, HTTPException           # FastAPI para crear la aplicación web y HTTPException para manejar errores HTTP
 from pathlib import Path                             # Manejo de rutas de archivos de forma multiplataforma
 import pandas as pd                                  # Biblioteca para Ciencia de Datos
@@ -19,10 +19,9 @@ warnings.filterwarnings("ignore")                    # Ignorar warnings de versi
 
 # Agregar ruta padre para importar módulos
 sys.path.append(str(Path(__file__).parent.parent))   # Permite importar módulos desde el directorio padre del proyecto
-from api.schemas import PropertyInput, PropertyOutput, ErrorResponse  # Importa los modelos Pydantic definidos en schemas.py para validación de datos
+from api.schemas import PropertyInput, PropertyOutput, ErrorResponse  # Importa los modelos Pydantic
 
 # Inicializar FastAPI
-# Crea la aplicación FastAPI con metadatos para documentación
 app = FastAPI(
     title="API de Predicción de Alquileres",
     description="API para predecir el precio de alquiler de propiedades en Ecuador",
@@ -32,16 +31,56 @@ app = FastAPI(
 # Configurar CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],            # Permite peticiones desde cualquier origen
-    allow_credentials=True,         # Permite enviar cookies/credenciales
-    allow_methods=["*"],            # Permite todos los métodos HTTP
-    allow_headers=["*"],            # Permite todos los headers
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
+
+def fix_numpy_compatibility():
+    """
+    Aplica parches de compatibilidad para NumPy
+    Soluciona el error: <class 'numpy.random._mt19937.MT19937'> is not a known BitGenerator module
+    """
+    try:
+        # Método 1: Parche directo para MT19937
+        if not hasattr(np.random, 'MT19937'):
+            try:
+                from numpy.random import MT19937
+                np.random.MT19937 = MT19937
+                print("✅ Parche MT19937 aplicado (método 1)")
+            except ImportError:
+                try:
+                    # Método 2: Importar desde el módulo interno
+                    import numpy.random._mt19937 as mt19937
+                    np.random.MT19937 = mt19937.MT19937
+                    print("✅ Parche MT19937 aplicado (método 2)")
+                except ImportError:
+                    # Método 3: Crear clase dummy si todo falla
+                    class DummyMT19937:
+                        def __init__(self, *args, **kwargs):
+                            pass
+                    np.random.MT19937 = DummyMT19937
+                    print("⚠️ Parche MT19937 dummy aplicado")
+        
+        # Método 4: Parche para el módulo _mt19937 completo
+        if 'numpy.random._mt19937' not in sys.modules:
+            import types
+            mock_module = types.ModuleType('numpy.random._mt19937')
+            mock_module.MT19937 = getattr(np.random, 'MT19937', type('MT19937', (), {}))
+            sys.modules['numpy.random._mt19937'] = mock_module
+            print("✅ Módulo _mt19937 mock creado")
+            
+    except Exception as e:
+        print(f"⚠️ Error aplicando parches: {e}")
 
 def load_model():
     """
-    Carga el modelo con manejo de errores mejorado y detección del entorno Railway
+    Carga el modelo con manejo de errores mejorado
     """
+    # Aplicar parches de compatibilidad ANTES de cargar el modelo
+    fix_numpy_compatibility()
+    
     # Detectar si estamos en Railway
     is_railway = os.environ.get('RAILWAY_ENVIRONMENT') is not None
     
@@ -54,54 +93,17 @@ def load_model():
     
     # Construir ruta absoluta según el entorno
     if model_path_env.startswith('./'):
-        if is_railway:
-            # En Railway, el repositorio se clona en /main/
-            # Verificar si /main existe
-            main_dir = Path('/main')
-            if main_dir.exists():
-                base_path = main_dir
-                print(f"✅ Usando /main/ como base path (Railway)")
-            else:
-                # Fallback a directorio actual si /main no existe
-                base_path = Path.cwd()
-                print(f"⚠️ /main/ no existe, usando {base_path} como base path")
-        else:
-            # Localmente, usar ruta relativa al archivo
-            base_path = Path(__file__).parent.parent
-            print(f"✅ Usando {base_path} como base path (local)")
-        
+        # En Railway, usar /app como base (según logs)
+        base_path = Path('/app')
         MODEL_PATH = base_path / model_path_env[2:]
+        print(f"✅ Usando {base_path} como base path")
     else:
         MODEL_PATH = Path(model_path_env)
     
     print(f"📁 Buscando modelo en: {MODEL_PATH}")
     print(f"📁 El archivo existe: {MODEL_PATH.exists()}")
     
-    # Debug: Explorar sistema de archivos para diagnóstico
-    print("\n📂 Explorando sistema de archivos:")
-    
-    # Listar directorios relevantes
-    dirs_to_check = ['/', '/main', '/app', Path.cwd()]
-    for dir_path in dirs_to_check:
-        path = Path(dir_path) if isinstance(dir_path, str) else dir_path
-        if path.exists():
-            print(f"\n📂 Contenido de {path}:")
-            try:
-                for item in sorted(path.glob("*"))[:10]:  # Limitar a 10 items
-                    if item.is_dir():
-                        print(f"  📁 {item.name}/")
-                    else:
-                        size = item.stat().st_size
-                        if size > 1024*1024:
-                            print(f"  📄 {item.name} ({size/(1024*1024):.2f} MB)")
-                        elif size > 1024:
-                            print(f"  📄 {item.name} ({size/1024:.2f} KB)")
-                        else:
-                            print(f"  📄 {item.name} ({size} bytes)")
-            except Exception as e:
-                print(f"  Error listando {path}: {e}")
-    
-    # Verificar directorio de models específicamente
+    # Verificar directorio de models
     models_dir = MODEL_PATH.parent
     if models_dir.exists():
         print(f"\n📂 Contenido de {models_dir}:")
@@ -111,42 +113,60 @@ def load_model():
                 print(f"  📄 {file.name} ({size:.2f} MB)")
     else:
         print(f"\n❌ El directorio {models_dir} NO existe")
-        
-        # Buscar archivos .pkl en todo el sistema
-        print("\n🔍 Buscando archivos .pkl:")
-        for root in ['/main', '/app', Path.cwd()]:
-            root_path = Path(root) if isinstance(root, str) else root
-            if root_path.exists():
-                for pkl_file in root_path.rglob("*.pkl"):
-                    print(f"  📄 Encontrado: {pkl_file}")
+        return None
     
     if not MODEL_PATH.exists():
         print("❌ No se puede cargar el modelo: archivo no encontrado")
         return None
     
-    # Intentar cargar el modelo
+    # Intentar cargar el modelo con diferentes estrategias
     try:
         print(f"\n🔄 Cargando modelo desde {MODEL_PATH}...")
         print(f"📊 Versión de NumPy: {np.__version__}")
         
-        # Intentar cargar con diferentes métodos si es necesario
+        # Estrategia 1: Carga normal
         try:
             model = joblib.load(MODEL_PATH)
+            print("✅ Modelo cargado exitosamente (estrategia 1)")
         except Exception as e:
             if "BitGenerator" in str(e):
-                print("⚠️ Error de BitGenerator detectado, intentando parche...")
-                # Parche para compatibilidad con NumPy 2.x
-                if not hasattr(np.random, 'MT19937'):
-                    import numpy.random._mt19937 as mt19937
-                    np.random.MT19937 = mt19937.MT19937
-                model = joblib.load(MODEL_PATH)
+                print("⚠️ Error de BitGenerator detectado, intentando estrategia 2...")
+                
+                # Estrategia 2: Carga con mmap_mode
+                try:
+                    model = joblib.load(MODEL_PATH, mmap_mode='r')
+                    print("✅ Modelo cargado exitosamente (estrategia 2 - mmap_mode)")
+                except Exception as e2:
+                    print(f"⚠️ Estrategia 2 falló: {e2}")
+                    
+                    # Estrategia 3: Carga en entorno limpio
+                    import pickle
+                    try:
+                        with open(MODEL_PATH, 'rb') as f:
+                            model = pickle.load(f)
+                        print("✅ Modelo cargado exitosamente (estrategia 3 - pickle)")
+                    except Exception as e3:
+                        print(f"⚠️ Estrategia 3 falló: {e3}")
+                        
+                        # Estrategia 4: Usar parche adicional
+                        import numpy.random._mt19937 as mt19937
+                        np.random.MT19937 = mt19937.MT19937
+                        sys.modules['numpy.random._mt19937'] = mt19937
+                        
+                        model = joblib.load(MODEL_PATH)
+                        print("✅ Modelo cargado exitosamente (estrategia 4 - parche forzado)")
             else:
                 raise e
+        
+        # Verificar que el modelo tiene método predict
+        if not hasattr(model, 'predict'):
+            print("❌ El objeto cargado no tiene método predict")
+            return None
         
         print(f"✅ Modelo cargado exitosamente")
         print(f"📊 Tipo de modelo: {type(model).__name__}")
         
-        # Si es un pipeline, mostrar los pasos
+        # Mostrar información del pipeline
         if hasattr(model, 'steps'):
             print(f"📊 Pasos del pipeline: {[step[0] for step in model.steps]}")
         elif hasattr(model, 'named_steps'):
@@ -154,10 +174,6 @@ def load_model():
         
         return model
         
-    except ImportError as e:
-        print(f"❌ Error de importación: {e}")
-        print("💡 Sugerencia: Verifica que todas las dependencias estén instaladas con las versiones correctas")
-        return None
     except Exception as e:
         print(f"❌ Error inesperado cargando modelo: {e}")
         return None
@@ -175,40 +191,21 @@ model = load_model()
 async def model_info():
     """Endpoint para ver información del modelo cargado"""
     if model is None:
-        # Información de debug cuando el modelo no está cargado
-        model_path_env = os.environ.get('MODEL_PATH', './models/rental_price_model.pkl')
-        is_railway = os.environ.get('RAILWAY_ENVIRONMENT') is not None
-        
-        # Construir posibles rutas para debug
-        possible_paths = {
-            "env_path": model_path_env,
-            "cwd_models": str(Path.cwd() / "models" / "rental_price_model.pkl"),
-            "main_models": str(Path('/main/models/rental_price_model.pkl')),
-            "app_models": str(Path('/app/models/rental_price_model.pkl')),
-            "parent_models": str(Path(__file__).parent.parent / "models" / "rental_price_model.pkl")
-        }
-        
-        exists_info = {path_name: Path(path_str).exists() 
-                      for path_name, path_str in possible_paths.items() 
-                      if path_str != str(Path(__file__).parent.parent / "models" / "rental_price_model.pkl")}
-        
         return {
             "status": "no_model",
-            "railway_environment": is_railway,
-            "model_path_env": model_path_env,
-            "possible_paths": possible_paths,
-            "exists": exists_info,
-            "cwd": str(Path.cwd())
+            "message": "Modelo no cargado",
+            "numpy_version": np.__version__,
+            "has_mt19937": hasattr(np.random, 'MT19937')
         }
     
-    # Obtener información básica del modelo
     info = {
         "status": "loaded",
         "model_path": str(MODEL_PATH) if 'MODEL_PATH' in dir() else "unknown",
-        "model_type": type(model).__name__
+        "model_type": type(model).__name__,
+        "numpy_version": np.__version__,
+        "has_mt19937": hasattr(np.random, 'MT19937')
     }
     
-    # Si es un pipeline, obtener más detalles
     if hasattr(model, 'steps'):
         info["steps"] = [{"name": step[0], "type": type(step[1]).__name__} for step in model.steps]
     elif hasattr(model, 'named_steps'):
@@ -219,97 +216,54 @@ async def model_info():
 
 @app.get("/")
 async def root():
-    # Endpoint raíz que muestra información básica de la API
     return {
         "message": "API de Predicción de Alquileres",
-        "docs": "/docs",                                     # Ruta a la documentación automática
-        "status": "active" if model else "model_not_loaded", # Estado del modelo
-        "environment": os.environ.get('RAILWAY_ENVIRONMENT', 'local'),
-        "numpy_version": np.__version__
+        "docs": "/docs",
+        "status": "active" if model else "model_not_loaded",
+        "numpy_version": np.__version__,
+        "has_mt19937": hasattr(np.random, 'MT19937')
     }
 
 @app.get("/health")
 async def health_check():
-    # Endpoint para verificar el estado de salud de la API
-    model_path_env = os.environ.get('MODEL_PATH', './models/rental_price_model.pkl')
-    is_railway = os.environ.get('RAILWAY_ENVIRONMENT') is not None
-    
-    # Determinar ruta potencial para debug
-    if is_railway:
-        potential_path = Path('/main/models/rental_price_model.pkl')
-    else:
-        potential_path = Path(__file__).parent.parent / "models" / "rental_price_model.pkl"
-    
     return {
         "status": "healthy",
         "model_loaded": model is not None,
-        "railway_environment": is_railway,
-        "model_path_env": model_path_env,
-        "potential_model_exists": potential_path.exists(),
         "numpy_version": np.__version__,
+        "has_mt19937": hasattr(np.random, 'MT19937'),
         "python_version": sys.version.split()[0]
     }
 
-@app.get("/debug/paths")
-async def debug_paths():
-    """Endpoint para debug de rutas"""
-    is_railway = os.environ.get('RAILWAY_ENVIRONMENT') is not None
-    
-    paths = {
-        "current_dir": str(Path.cwd()),
-        "file_dir": str(Path(__file__).parent),
-        "parent_dir": str(Path(__file__).parent.parent),
-        "railway_environment": is_railway,
-        "model_path_env": os.environ.get('MODEL_PATH', './models/rental_price_model.pkl'),
+@app.get("/debug/random")
+async def debug_random():
+    """Endpoint para debug del sistema aleatorio"""
+    import numpy.random
+    return {
+        "has_mt19937": hasattr(np.random, 'MT19937'),
+        "mt19937_type": str(type(np.random.MT19937)) if hasattr(np.random, 'MT19937') else None,
+        "random_dir": dir(np.random)[:20],
+        "has_module": 'numpy.random._mt19937' in sys.modules
     }
-    
-    # Verificar rutas específicas
-    paths_to_check = [
-        "/main/models/rental_price_model.pkl",
-        "/app/models/rental_price_model.pkl",
-        str(Path.cwd() / "models" / "rental_price_model.pkl"),
-        str(Path(__file__).parent.parent / "models" / "rental_price_model.pkl")
-    ]
-    
-    for path_str in paths_to_check:
-        path = Path(path_str)
-        paths[f"exists_{path_str}"] = path.exists()
-        if path.exists():
-            paths[f"size_{path_str}"] = f"{path.stat().st_size / (1024*1024):.2f} MB"
-    
-    return paths
 
 @app.post("/predict", 
-          response_model=PropertyOutput,                    # Define el modelo de respuesta
-          responses={                                       # Documenta posibles respuestas de error
+          response_model=PropertyOutput,
+          responses={
               400: {"model": ErrorResponse},
               500: {"model": ErrorResponse}
           })
-async def predict(property_data: PropertyInput):           # Valida entrada con PropertyInput
-    """
-    Predice el precio de alquiler de una propiedad
-    
-    - **provincia**: Provincia donde se ubica la propiedad
-    - **lugar**: Ciudad o localidad
-    - **num_dormitorios**: Número de dormitorios
-    - **num_banos**: Número de baños
-    - **area**: Área en metros cuadrados
-    - **num_garages**: Número de garajes
-    """
+async def predict(property_data: PropertyInput):
     if model is None:
-        # Si el modelo no está cargado, retorna error 503 (Service Unavailable)
         raise HTTPException(
             status_code=503,
             detail="El modelo no está disponible. Por favor intenta más tarde."
         )
 
-    # Convierte los datos validados del schema al formato que espera el modelo ML
     try:
         # Convertir entrada a DataFrame
         input_data = pd.DataFrame([{
             'Provincia': property_data.provincia,
-            'ciudad': property_data.lugar,                   # Mapea 'lugar' del schema a 'ciudad' que espera el modelo
-            'sector': property_data.lugar,                   # Usa lugar como sector también
+            'ciudad': property_data.lugar,
+            'sector': property_data.lugar,
             'Num. dormitorios': property_data.num_dormitorios,
             'Num. banos': property_data.num_banos,
             'Area': property_data.area,
@@ -320,25 +274,21 @@ async def predict(property_data: PropertyInput):           # Valida entrada con 
         print(f"📊 DataFrame creado: {input_data.to_dict()}")
         
         # Hacer predicción
-        prediction = model.predict(input_data)[0]  # Obtiene el primer (y único) valor predicho
-        
-        # Redondear a 2 decimales
-        prediction = round(float(prediction), 2)  # Formatea la predicción
+        prediction = model.predict(input_data)[0]
+        prediction = round(float(prediction), 2)
         
         print(f"📤 Predicción: {prediction}")
         
-        return PropertyOutput(prediction=prediction)  # Retorna usando el schema de salida
+        return PropertyOutput(prediction=prediction)
         
     except Exception as e:
-        # Captura cualquier error durante la predicción
         print(f"❌ Error en predicción: {str(e)}")
         raise HTTPException(
             status_code=400,
             detail=f"Error en la predicción: {str(e)}"
         )
 
-# Ejecuta la aplicación con uvicorn si se llama directamente
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get('PORT', 8000))
+    port = int(os.environ.get('PORT', 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)
