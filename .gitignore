@@ -1,0 +1,91 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+pythonenv*
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+# Distributions
+dist/
+build/
+*.egg-info/
+
+# Unit test / coverage
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Logs
+logs/
+*.log
+
+# Datos
+*.csv
+*.xlsx
+*.xls
+!data/real_state_ecuador_dataset.csv  # Exceptuar el dataset original
+
+# Modelos serializados
+models/*.pkl
+!models/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# API
+.env
+*.pid
+*.pid.lock
+
+# Configuración local
+config_local.yaml
+*.local.yaml
+
+# Notebook checkpoints
+*.ipynb_checkpoints/
+
+# API keys and secrets
+*.key
+*.pem
+*.crt
+.env.*
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Virtual environment
+.conda/
+.python-version
