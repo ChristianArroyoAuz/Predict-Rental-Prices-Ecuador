@@ -14,6 +14,7 @@ import pandas as pd                                  # Biblioteca para Ciencia d
 import numpy as np                                   # Librerías para operaciones numéricas
 import joblib                                        # Biblioteca para guardar y cargar modelos de Machine Learning
 import sys                                           # Acceso a variables y funciones del sistema
+import os
 
 # Agregar ruta padre para importar módulos
 sys.path.append(str(Path(__file__).parent.parent))                       # Permite importar módulos desde el directorio padre del proyecto
@@ -38,7 +39,28 @@ app.add_middleware(
 
 # Cargar modelo al iniciar
 # Define la ruta donde se encuentra el modelo entrenado
-MODEL_PATH = Path(__file__).parent.parent / "models" / "rental_price_model.pkl"
+#MODEL_PATH = Path(__file__).parent.parent / "models" / "rental_price_model.pkl"
+model_path_env = os.environ.get('MODEL_PATH', './models/rental_price_model.pkl')
+
+# Convertir a Path absoluto
+if model_path_env.startswith('./'):
+    # Si es ruta relativa, resolver respecto al directorio del proyecto
+    MODEL_PATH = Path(__file__).parent.parent / model_path_env[2:]
+else:
+    MODEL_PATH = Path(model_path_env)
+
+print(f"📁 Buscando modelo en: {MODEL_PATH}")
+
+# Verificar si el archivo existe
+if not MODEL_PATH.exists():
+    print(f"⚠️  ADVERTENCIA: El archivo del modelo no existe en {MODEL_PATH}")
+    print(f"📂 Contenido del directorio models/:")
+    models_dir = Path(__file__).parent.parent / "models"
+    if models_dir.exists():
+        for file in models_dir.glob("*"):
+            print(f"   - {file.name}")
+    else:
+        print(f"   El directorio {models_dir} no existe")
 
 # Intenta cargar el modelo al iniciar la aplicación
 try:
@@ -47,6 +69,29 @@ try:
 except Exception as e:
     print(f"❌ Error cargando modelo: {e}")
     model = None
+
+@app.get("/model-info")
+async def model_info():
+    """Endpoint para ver información del modelo cargado"""
+    if model is None:
+        return {
+            "status": "no_model",
+            "model_path": str(MODEL_PATH),
+            "path_exists": MODEL_PATH.exists()
+        }
+    
+    # Obtener información básica del modelo
+    info = {
+        "status": "loaded",
+        "model_path": str(MODEL_PATH),
+        "model_type": type(model).__name__
+    }
+    
+    # Si es un pipeline, obtener más detalles
+    if hasattr(model, 'steps'):
+        info["steps"] = [step[0] for step in model.steps]
+    
+    return info
 
 @app.get("/")
 async def root():
