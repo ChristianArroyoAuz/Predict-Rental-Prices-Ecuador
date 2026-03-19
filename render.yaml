@@ -2,8 +2,13 @@ services:
   - type: web
     name: rental-prediction-api
     runtime: python
+    repo: https://github.com/ChristianArroyoAuz/Predict-Rental-Prices-Ecuador.git
+    branch: main
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
         value: 3.9.0
+      - key: MODEL_PATH
+        value: ./models/rental_price_model.pkl
+    autoDeploy: true
